@@ -20,17 +20,15 @@
             --border-radius-medium: 16px;
             --border-radius-small: 12px;
             --border-radius-tiny: 8px;
-            --line-height: 1.7;
+            --line-height: 1.8;
+            /* Increased for better spacing with underlines */
             --transition-duration: 0.3s;
             --blur-intensity: 30px;
 
-            /* Token Probability Colormap (Low to High) */
-            --prob-color-low: rgba(255, 128, 128, 0.2);
-            /* Muted Red */
-            --prob-color-mid: rgba(255, 255, 128, 0.25);
-            /* Muted Yellow */
-            --prob-color-high: rgba(128, 255, 128, 0.35);
-            /* Muted Green */
+            /* Probability Colormap */
+            --prob-color-low: red;
+            --prob-color-high: green;
+            --prob-bar-width: 3px;
         }
 
         /* Basic Resets & Global Styles */
@@ -225,14 +223,11 @@
             font-size: 13px;
             margin-bottom: 8px;
             padding: 6px 12px;
-            /* Adjusted padding for better look with large radius */
             background-color: rgba(255, 255, 0, 0.1);
             border: 1px solid rgba(255, 255, 0, 0.2);
             color: rgba(255, 255, 0, 0.8);
             display: inline-block;
-            /* To make it fit the content */
             border-radius: var(--border-radius-large);
-            /* FIXED: Use the same large radius */
         }
 
         @keyframes fade-in-up {
@@ -351,13 +346,18 @@
             position: absolute;
         }
 
-        /* Token Probability Visualization */
+        /* --- Token Probability Visualization ("Smart Underline") --- */
         .token {
-            display: inline;
-            transition: background-color 0.2s ease-in-out;
-            border-radius: 4px;
+            --prob-color: color-mix(in srgb, var(--prob-color-low), var(--prob-color-high) calc(100% * var(--prob-value, 0)));
+            background: linear-gradient(to top, var(--prob-color) var(--prob-bar-width), transparent var(--prob-bar-width));
+            padding-bottom: 5px;
+            margin-bottom: -5px;
             cursor: default;
-            background-color: color-mix(in srgb, var(--prob-color-low), var(--prob-color-high) calc(100% * var(--prob-value, 0)));
+            transition: text-shadow 0.2s ease-in-out;
+        }
+
+        .token:hover {
+            text-shadow: 0 0 8px var(--prob-color-high);
         }
 
         #token-popover {
@@ -755,13 +755,6 @@
                                 const choice = chunk.choices && chunk.choices[0];
                                 if (!choice) continue;
 
-                                if (tokenCount === 0 && !choice.logprobs) {
-                                    logprobsAvailable = false;
-                                    const notice = document.createElement('div');
-                                    notice.className = 'prob-notice';
-                                    notice.textContent = 'Token probabilities not available.';
-                                    aiMessageDiv.insertBefore(notice, aiContentDiv);
-                                }
                                 const delta = choice.delta?.content;
                                 if (delta) {
                                     tokenCount++;
@@ -785,13 +778,11 @@
                 } catch (error) {
                     const message = error.name === 'AbortError' ? '\n\n[Output interrupted by user]' : `\n\n[Error: ${error.message}]`;
                     aiContentDiv.textContent += message;
-                    if (error.name !== 'AbortError') {
-                        conversationHistory.push({ role: 'assistant', content: aiContentDiv.textContent });
-                    }
+                    if (error.name !== 'AbortError') { conversationHistory.push({ role: 'assistant', content: aiContentDiv.textContent }); }
                 } finally {
                     const duration = ((performance.now() - startTime) / 1000).toFixed(2);
                     const tokensUsed = finalUsage?.completion_tokens ?? tokenCount;
-                    const tokensPerSecond = (tokensUsed / duration).toFixed(2);
+                    const tokensPerSecond = tokensUsed > 0 && duration > 0 ? (tokensUsed / duration).toFixed(2) : "0.00";
 
                     const footer = document.createElement('div');
                     footer.className = 'message-footer';
