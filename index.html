@@ -157,6 +157,77 @@
             white-space: pre;
         }
 
+        /* --- Reasoning Block Styles --- */
+        .reasoning-block {
+            background-color: rgba(0, 0, 0, 0.4);
+            border-radius: var(--border-radius-small);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .reasoning-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 12px;
+            background-color: rgba(255, 255, 255, 0.05);
+            cursor: pointer;
+        }
+
+        .reasoning-label {
+            font-size: 10px;
+            font-weight: bold;
+            color: var(--text-color-secondary);
+            letter-spacing: 1px;
+            user-select: none;
+        }
+
+        .reasoning-toggle-button {
+            background: none;
+            border: none;
+            color: var(--text-color-secondary);
+            font-family: monospace;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+            transition: transform 0.3s ease;
+        }
+
+        .reasoning-toggle-button:hover {
+            color: var(--text-color-primary);
+        }
+
+        .reasoning-content {
+            display: grid;
+            grid-template-rows: 1fr;
+            transition: grid-template-rows 0.4s ease-in-out;
+        }
+
+        .reasoning-content-inner {
+            overflow: hidden;
+            padding: 12px 16px;
+            white-space: pre-wrap;
+            min-height: 0;
+            transition: padding 0.4s ease-in-out, opacity 0.3s ease-in-out 0.1s;
+            opacity: 1;
+        }
+
+        .reasoning-block.collapsed .reasoning-content {
+            grid-template-rows: 0fr;
+        }
+
+        .reasoning-block.collapsed .reasoning-content-inner {
+            padding-top: 0;
+            padding-bottom: 0;
+            opacity: 0;
+            transition: opacity 0.1s ease-in-out;
+        }
+
+        .reasoning-block.collapsed .reasoning-toggle-button {
+            transform: rotate(-45deg);
+        }
+
         .message-content code {
             font-family: "SF Mono", "Fira Code", monospace;
             background-color: rgba(0, 0, 0, 0.2);
@@ -734,6 +805,9 @@
                 const { messageDiv: aiMessageDiv, contentDiv: aiContentDiv } = renderMessage('ai');
                 const startTime = performance.now();
                 let tokenCount = 0, finalUsage = null, logprobsAvailable = true;
+                let reasoningBlock = null, reasoningContentInner = null;
+                let finalContentText = '';
+
 
                 const messagesForRequest = [...history];
                 const systemPrompt = systemPromptInput.value.trim();
@@ -771,30 +845,86 @@
                                 const choice = chunk.choices && chunk.choices[0];
                                 if (!choice) continue;
 
-                                const delta = choice.delta?.content;
-                                if (delta) {
-                                    tokenCount++;
-                                    if (logprobsAvailable && choice.logprobs) {
-                                        const logprobInfo = choice.logprobs.content[0];
-                                        const tokenSpan = document.createElement('span');
-                                        tokenSpan.className = 'token'; tokenSpan.textContent = delta;
+                                const createTokenSpan = (textContent, logprobInfo) => {
+                                    const tokenSpan = document.createElement('span');
+                                    if (logprobsAvailable && logprobInfo) {
+                                        tokenSpan.className = 'token';
                                         tokenSpan.style.setProperty('--prob-value', Math.exp(logprobInfo.logprob));
                                         tokenSpan.addEventListener('mouseenter', (e) => showTokenPopover(e.target, logprobInfo.top_logprobs));
                                         tokenSpan.addEventListener('mouseleave', hideTokenPopover);
-                                        aiContentDiv.appendChild(tokenSpan);
-                                    } else {
-                                        aiContentDiv.textContent += delta;
                                     }
+                                    tokenSpan.textContent = textContent;
+                                    return tokenSpan;
+                                };
+
+                                const logprobInfo = (logprobsAvailable && choice.logprobs && choice.logprobs.content) ? choice.logprobs.content[0] : null;
+
+                                // Handle reasoning content
+                                const reasoningDelta = choice.delta?.reasoning_content;
+                                if (reasoningDelta) {
+                                    tokenCount++;
+                                    if (!reasoningBlock) {
+                                        reasoningBlock = document.createElement('div');
+                                        reasoningBlock.className = 'reasoning-block';
+
+                                        const reasoningHeader = document.createElement('div');
+                                        reasoningHeader.className = 'reasoning-header';
+
+                                        const reasoningLabel = document.createElement('span');
+                                        reasoningLabel.className = 'reasoning-label';
+                                        reasoningLabel.textContent = 'REASONING';
+
+                                        const toggleButton = document.createElement('button');
+                                        toggleButton.className = 'reasoning-toggle-button';
+                                        toggleButton.innerHTML = '&plus;';
+                                        toggleButton.style.transform = 'rotate(0deg)';
+
+                                        reasoningHeader.appendChild(reasoningLabel);
+                                        reasoningHeader.appendChild(toggleButton);
+
+                                        const reasoningContentDiv = document.createElement('div');
+                                        reasoningContentDiv.className = 'reasoning-content';
+
+                                        reasoningContentInner = document.createElement('div');
+                                        reasoningContentInner.className = 'reasoning-content-inner';
+
+                                        reasoningContentDiv.appendChild(reasoningContentInner);
+                                        reasoningBlock.appendChild(reasoningHeader);
+                                        reasoningBlock.appendChild(reasoningContentDiv);
+
+                                        reasoningHeader.addEventListener('click', () => {
+                                            reasoningBlock.classList.toggle('collapsed');
+                                            toggleButton.style.transform = reasoningBlock.classList.contains('collapsed') ? 'rotate(-45deg)' : 'rotate(0deg)';
+                                        });
+                                        aiContentDiv.appendChild(reasoningBlock);
+                                    }
+                                    reasoningContentInner.appendChild(createTokenSpan(reasoningDelta, logprobInfo));
+                                    scrollToBottom();
+                                }
+
+                                // Handle main content
+                                const delta = choice.delta?.content;
+                                if (delta) {
+                                    tokenCount++;
+                                    finalContentText += delta;
+                                    aiContentDiv.appendChild(createTokenSpan(delta, logprobInfo));
                                     scrollToBottom();
                                 }
                             }
                         }
                     }
-                    conversationHistory.push({ role: 'assistant', content: aiContentDiv.textContent });
+                    if (finalContentText) {
+                        conversationHistory.push({ role: 'assistant', content: finalContentText });
+                    }
                 } catch (error) {
                     const message = error.name === 'AbortError' ? '\n\n[Output interrupted by user]' : `\n\n[Error: ${error.message}]`;
-                    aiContentDiv.textContent += message;
-                    if (error.name !== 'AbortError') { conversationHistory.push({ role: 'assistant', content: aiContentDiv.textContent }); }
+                    const errorNode = document.createElement('span');
+                    errorNode.textContent = message;
+                    aiContentDiv.appendChild(errorNode);
+
+                    if (error.name !== 'AbortError' && finalContentText) {
+                        conversationHistory.push({ role: 'assistant', content: finalContentText });
+                    }
                 } finally {
                     const duration = ((performance.now() - startTime) / 1000).toFixed(2);
                     const tokensUsed = finalUsage?.completion_tokens ?? tokenCount;
@@ -809,7 +939,7 @@
                     regenButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>`;
                     regenButton.onclick = () => regenerateLastMessage(aiMessageDiv);
                     footer.appendChild(regenButton);
-                    aiMessageDiv.appendChild(footer);
+                    aiContentDiv.appendChild(footer);
 
                     isGenerating = false; promptInput.disabled = false; submitButton.classList.remove('generating');
                     abortController = null; promptInput.focus(); scrollToBottom();
