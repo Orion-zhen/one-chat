@@ -804,6 +804,7 @@
 
                 const { messageDiv: aiMessageDiv, contentDiv: aiContentDiv } = renderMessage('ai');
                 const startTime = performance.now();
+                let firstTokenTime = null;
                 let tokenCount = 0, finalUsage = null, logprobsAvailable = true;
                 let reasoningBlock = null, reasoningContentInner = null;
                 let finalContentText = '';
@@ -844,6 +845,11 @@
                                 if (chunk.usage) { finalUsage = chunk.usage; }
                                 const choice = chunk.choices && chunk.choices[0];
                                 if (!choice) continue;
+
+                                const hasContent = choice.delta?.content || choice.delta?.reasoning_content;
+                                if (hasContent && firstTokenTime === null) {
+                                    firstTokenTime = performance.now();
+                                }
 
                                 const createTokenSpan = (textContent, logprobInfo) => {
                                     const tokenSpan = document.createElement('span');
@@ -926,13 +932,18 @@
                         conversationHistory.push({ role: 'assistant', content: finalContentText });
                     }
                 } finally {
-                    const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+                    const endTime = performance.now();
                     const tokensUsed = finalUsage?.completion_tokens ?? tokenCount;
-                    const tokensPerSecond = tokensUsed > 0 && duration > 0 ? (tokensUsed / duration).toFixed(2) : "0.00";
+
+                    const ttft = firstTokenTime ? ((firstTokenTime - startTime) / 1000).toFixed(2) : "N/A";
+                    const generationDuration = firstTokenTime ? (endTime - firstTokenTime) / 1000 : 0;
+                    const generationTimeFormatted = generationDuration.toFixed(2);
+                    const tokensPerSecond = tokensUsed > 0 && generationDuration > 0 ? (tokensUsed / generationDuration).toFixed(2) : "0.00";
 
                     const footer = document.createElement('div');
                     footer.className = 'message-footer';
-                    footer.innerHTML = `<div class="message-stats">Time: ${duration}s | Tokens: ${tokensUsed} | Speed: ${tokensPerSecond} tok/s</div>`;
+                    footer.innerHTML = `<div class="message-stats">TTFT: ${ttft}s | Time: ${generationTimeFormatted}s | Tokens: ${tokensUsed} | Speed: ${tokensPerSecond} tok/s</div>`;
+
                     const regenButton = document.createElement('button');
                     regenButton.className = 'action-button';
                     regenButton.title = 'Regenerate';
